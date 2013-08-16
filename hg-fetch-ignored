@@ -1,0 +1,49 @@
+#!/bin/bash
+# Download all ignored files from remote repository
+# SSH only
+
+[ -n "$1" ] \
+	&& REMOTE=$1 \
+	|| REMOTE=$(hg showconfig paths.default)
+if [ -z "$REMOTE" ]; then
+	echo Remote repository path unknown
+	exit 1
+fi
+echo Remote path: $REMOTE
+
+OLDWD=$PWD
+while [ ! -d ".hg" ] && [ "$PWD" != "/" ]; do
+	cd ..
+done
+
+if [ "$PWD" == "/" ]; then
+	echo Mercurial repository not found, abort
+	cd "$OLDPWD"
+	exit 1
+fi
+
+function get_ssh_params {
+	local IFS host dir
+	IFS='/'
+	set -- $REMOTE
+	if [ "$1" != "ssh:" ]; then
+		return 1
+	fi
+	shift 2
+	host=$1
+	shift
+	dir=$*
+	unset IFS
+	echo $host "'"$dir"'"
+}
+
+read REMOTE_HOST REMOTE_DIR <<< $(get_ssh_params)
+if [ -z "$REMOTE_HOST" ]; then
+	echo Can not proceed with non-ssh path
+	cd "$OLDPWD"
+	exit 1
+fi
+ssh $REMOTE_HOST "cd $REMOTE_DIR && hg st -ni" > .tmp_sync_list
+rsync -av --files-from=.tmp_sync_list -e ssh $REMOTE_HOST:$REMOTE_DIR .
+rm .tmp_sync_list
+cd "$OLDPWD"
